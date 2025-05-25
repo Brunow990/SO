@@ -15,7 +15,7 @@
 #include "list.h"
 #include "CPU.h"
 
-// Inclui os cabeçalhos dos escalonadores
+// Inclui os cabeçalhos de TODOS os escalonadores
 #include "schedule_rr.h"
 #include "schedule_rr_p.h"
 #include "schedule_edf.h"
