@@ -1,15 +1,15 @@
 /**
- * list data structure containing the tasks in the system
+ * Estrutura de dados de lista encadeada contendo as tarefas no sistema.
  */
 
-#include "task.h"
+#include "task.h" // Inclui a definição da Task
 
 struct node {
     Task *task;
     struct node *next;
 };
 
-// insert and delete operations.
+// operações de inserção e exclusão.
 void insert(struct node **head, Task *task);
 void delete(struct node **head, Task *task);
 void traverse(struct node *head);

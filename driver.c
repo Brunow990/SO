@@ -1,9 +1,8 @@
 /**
  * Driver.c
  *
- * A agenda está no formato
- *
- * [nome] [prioridade] [burst de CPU]
+ * A agenda está no formato:
+ * [nome],[prioridade],[burst de CPU],[deadline (opcional para EDF)]
  */
 
 #include <stdio.h>
@@ -12,7 +11,7 @@
 
 #include "task.h"
 #include "list.h"
-// Inclui cabeçalhos para todos os escalonadores
+// Inclui cabeçalhos específicos para cada escalonador
 #include "schedule_rr.h"
 #include "schedule_rr_p.h"
 #include "schedule_edf.h"
@@ -23,8 +22,8 @@
 int main(int argc, char *argv[])
 {
     FILE *in;
-    char *temp;
-    char task_line[SIZE]; // Renomeado 'task' para 'task_line' para evitar conflito com a struct Task
+    char *temp_line; // Usado para duplicar a linha lida
+    char task_line[SIZE]; // Armazena a linha lida do arquivo
 
     char *name;
     int priority;
@@ -43,60 +42,65 @@ int main(int argc, char *argv[])
     }
     
     while (fgets(task_line, SIZE, in) != NULL) {
-        temp = strdup(task_line); // Duplica a linha para tokenização
-        if (temp == NULL) {
+        temp_line = strdup(task_line); // Duplica a linha para tokenização segura
+        if (temp_line == NULL) {
             perror("strdup falhou");
             exit(EXIT_FAILURE);
         }
 
-        name = strsep(&temp,",");
-        if (name == NULL) { free(temp); continue; }
+        // Tokeniza a linha para extrair os atributos da tarefa
+        name = strsep(&temp_line,",");
+        if (name == NULL) { free(temp_line); continue; }
 
-        char *priority_str = strsep(&temp,",");
-        if (priority_str == NULL) { free(temp); continue; }
+        char *priority_str = strsep(&temp_line,",");
+        if (priority_str == NULL) { free(temp_line); continue; }
         priority = atoi(priority_str);
 
-        char *burst_str = strsep(&temp,",");
-        if (burst_str == NULL) { free(temp); continue; }
+        char *burst_str = strsep(&temp_line,",");
+        if (burst_str == NULL) { free(temp_line); continue; }
         burst = atoi(burst_str);
         
-        char *deadline_str = strsep(&temp, ","); // Para EDF, tenta ler o deadline
+        char *deadline_str = strsep(&temp_line, ","); // Tenta ler o deadline
+        
+        // Decida qual função 'add' chamar com base no escalonador que você quer testar
+        // e no formato da linha (se tem deadline ou não).
+
+        // Exemplo: Se você está testando EDF, use add_edf.
+        // Se o arquivo de entrada contém deadline, add_edf é o mais apropriado.
         if (deadline_str != NULL) {
             deadline = atoi(deadline_str);
-            // Isso assume que o arquivo de entrada sempre tem um deadline se o EDF for o pretendido.
-            // Em um cenário real, você pode querer um argumento de linha de comando para selecionar o escalonador.
-            add_edf(name, priority, burst, deadline); // Chama a função add específica do EDF
+            add_edf(name, priority, burst, deadline); 
         } else {
-            // Se não houver deadline, assume que é para RR, RR_P ou PA
-            // Você precisará escolher qual função 'add' chamar com base no escalonador desejado
-            // Por exemplo, se você quiser testar RR_P:
-            add_rr_p(name, priority, burst); 
-            // Ou para RR: add_rr(name, priority, burst);
-            // Ou para PA: add_pa(name, priority, burst);
+            // Se não houver deadline na linha, assuma que é para RR, RR_P ou PA.
+            // Escolha APENAS UM dos 'add_' abaixo para as tarefas sem deadline.
+            add_rr(name, priority, burst); // Para testar RR
+            // add_rr_p(name, priority, burst); // Para testar RR_P
+            // add_pa(name, priority, burst);   // Para testar PA
         }
 
-        free(temp); // Libera a string duplicada
+        free(temp_line); // Libera a string duplicada
     }
 
     fclose(in);
 
     // Invoca o escalonador. Você precisará selecionar qual escalonador executar.
-    // Por exemplo, para executar EDF:
-    //printf("\n--- Executando Escalondador EDF ---\n");
-    //schedule_edf();
+    // Descomente APENAS UM dos blocos abaixo para testar o escalonador desejado.
+
+    // Para executar Round Robin (RR):
+    printf("\n--- Executando Escalondador Round Robin ---\n");
+    schedule_rr();
     
-    // Para executar RR_P:
+    // Para executar Round Robin com Prioridade (RR_p):
     // printf("\n--- Executando Escalondador Round Robin com Prioridade ---\n");
     // schedule_rr_p();
 
-    // Para executar RR:
-     printf("\n--- Executando Escalondador Round Robin ---\n");
-     schedule_rr();
-
-    // Para executar PA:
+    // Para executar Earliest Deadline First (EDF):
+    // printf("\n--- Executando Escalondador EDF ---\n");
+    // schedule_edf();
+    
+    // Para executar Prioridade com Envelhecimento (PA):
     // printf("\n--- Executando Escalondador Prioridade com Envelhecimento ---\n");
     // schedule_pa();
-
 
     return 0;
 }

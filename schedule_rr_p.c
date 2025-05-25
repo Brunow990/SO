@@ -5,47 +5,47 @@
 #include "schedule_rr_p.h"
 #include "task.h"
 #include "list.h"
-#include "CPU.h" // Para a função run
+#include "CPU.h" // Para a função run e QUANTUM
 
-// Array de ponteiros de cabeçalho para filas de prioridade (MAX_PRIORITY a MIN_PRIORITY)
-// Por exemplo, priority_queues[0] pode ser para MAX_PRIORITY, priority_queues[9] para MIN_PRIORITY
-#define NUM_PRIORITY_LEVELS (MAX_PRIORITY - MIN_PRIORITY + 1)
-struct node *priority_queues[NUM_PRIORITY_LEVELS];
+// Array de ponteiros de cabeçalho para filas de prioridade (MÚLTIPLAS FILAS)
+// O índice 0 corresponde à prioridade mais alta (MIN_PRIORITY, ex: 1)
+// O índice (MAX_PRIORITY - MIN_PRIORITY) corresponde à prioridade mais baixa (MAX_PRIORITY, ex: 10)
+#define RR_P_NUM_PRIORITY_LEVELS (MAX_PRIORITY - MIN_PRIORITY + 1)
+struct node *rr_p_priority_queues[RR_P_NUM_PRIORITY_LEVELS];
 
 static int rr_p_tid_counter = 0; // Contador global para IDs de tarefas
-static int rr_p_global_time = 0; // Tempo global para RR_P
+static int rr_p_global_time = 0; // Tempo global para o escalonador RR_P
 
-// Inicializa as filas de prioridade (deve ser chamada uma vez, por exemplo, em add ou schedule)
-void initialize_priority_queues() {
+// Inicializa as filas de prioridade (garante que todos os ponteiros sejam NULL no início)
+void initialize_rr_p_priority_queues() {
     static int initialized = 0;
     if (!initialized) {
-        for (int i = 0; i < NUM_PRIORITY_LEVELS; i++) {
-            priority_queues[i] = NULL;
+        for (int i = 0; i < RR_P_NUM_PRIORITY_LEVELS; i++) {
+            rr_p_priority_queues[i] = NULL;
         }
         initialized = 1;
     }
 }
 
 // Função para escolher a próxima tarefa com base em Round Robin com Prioridade
+// Prioridade é levada em conta primeiro, depois RR dentro da mesma prioridade.
 Task *pickNextTask_rr_p() {
-    initialize_priority_queues();
+    initialize_rr_p_priority_queues(); // Garante que as filas estejam inicializadas
 
-    // Itera da prioridade mais alta (1) para a mais baixa (10)
-    for (int i = 0; i < NUM_PRIORITY_LEVELS; i++) {
-        // O índice `i` corresponde à prioridade `MIN_PRIORITY + i`
-        // Então, se MIN_PRIORITY é 1, o índice 0 é a prioridade 1, o índice 9 é a prioridade 10.
-        if (priority_queues[i] != NULL) {
-            // Encontrou uma tarefa na fila de prioridade mais alta disponível
-            // Para o comportamento Round Robin dentro da mesma prioridade, pega o cabeçalho.
-            return priority_queues[i]->task;
+    // Itera das prioridades mais altas (índice 0) para as mais baixas
+    for (int i = 0; i < RR_P_NUM_PRIORITY_LEVELS; i++) {
+        if (rr_p_priority_queues[i] != NULL) {
+            // Encontrou uma tarefa na fila de prioridade mais alta disponível.
+            // Para Round Robin dentro da mesma prioridade, pega o cabeçalho.
+            return rr_p_priority_queues[i]->task;
         }
     }
     return NULL; // Nenhuma tarefa em nenhuma fila
 }
 
-// adiciona uma tarefa à lista 
+// adiciona uma tarefa à lista para o escalonador Round Robin com Prioridade
 void add_rr_p(char *name, int priority, int burst){
-    initialize_priority_queues();
+    initialize_rr_p_priority_queues(); // Garante que as filas estejam inicializadas
 
     if (priority < MIN_PRIORITY || priority > MAX_PRIORITY) {
         fprintf(stderr, "Prioridade inválida para a tarefa %s: %d (deve estar entre %d e %d)\n", name, priority, MIN_PRIORITY, MAX_PRIORITY);
@@ -54,12 +54,12 @@ void add_rr_p(char *name, int priority, int burst){
 
     Task *newTask = (Task *) malloc(sizeof(Task));
     if (newTask == NULL) {
-        perror("Falha ao alocar nova tarefa");
+        perror("Falha ao alocar nova tarefa para RR_P");
         exit(EXIT_FAILURE);
     }
     newTask->name = strdup(name);
     if (newTask->name == NULL) {
-        perror("Falha ao duplicar o nome da tarefa");
+        perror("Falha ao duplicar o nome da tarefa para RR_P");
         free(newTask);
         exit(EXIT_FAILURE);
     }
@@ -69,32 +69,52 @@ void add_rr_p(char *name, int priority, int burst){
     newTask->initial_burst = burst; // Armazena o burst inicial
     newTask->arrival_time = rr_p_global_time; // Registra o tempo de chegada
     newTask->last_run_time = rr_p_global_time; // Inicializa o tempo da última execução
+    newTask->deadline = 0; // RR_P não usa deadline, pode ser 0 ou outro valor padrão
 
-    // Insere na fila de prioridade correta (cabeçalho da lista por enquanto)
-    // Ajusta o índice com base em MIN_PRIORITY (ex: prioridade 1 vai para o índice 0)
-    insert(&priority_queues[priority - MIN_PRIORITY], newTask);
-    printf("Tarefa adicionada [%s] prioridade [%d] burst [%d]\n", name, priority, burst);
+    // Insere a tarefa na fila de prioridade correta (no final para manter RR dentro da prioridade)
+    struct node *newNode = malloc(sizeof(struct node));
+    if (newNode == NULL) {
+        perror("Falha ao alocar novo nó para RR_P");
+        free(newTask->name);
+        free(newTask);
+        exit(EXIT_FAILURE);
+    }
+    newNode->task = newTask;
+    newNode->next = NULL;
+
+    struct node **target_queue_head = &rr_p_priority_queues[priority - MIN_PRIORITY];
+    if (*target_queue_head == NULL) {
+        *target_queue_head = newNode;
+    } else {
+        struct node *temp = *target_queue_head;
+        while (temp->next != NULL) {
+            temp = temp->next;
+        }
+        temp->next = newNode;
+    }
+    printf("Tarefa adicionada para RR_P [%s] prioridade [%d] burst [%d]\n", name, priority, burst);
 }
 
-// invoca o escalonador
+// invoca o escalonador Round Robin com Prioridade
 void schedule_rr_p(){
-    initialize_priority_queues();
+    initialize_rr_p_priority_queues(); // Garante que as filas estejam inicializadas
+    printf("Iniciando escalonamento Round Robin com Prioridade (RR_p)...\n");
     
-    // Verifica se há alguma tarefa em alguma fila
     int tasks_remaining = 1; // Assume que há tarefas restantes até que se prove o contrário
     while (tasks_remaining) {
         tasks_remaining = 0; // Reseta para esta iteração
 
-        for (int i = 0; i < NUM_PRIORITY_LEVELS; i++) {
+        // Itera das prioridades mais altas (índice 0) para as mais baixas
+        for (int i = 0; i < RR_P_NUM_PRIORITY_LEVELS; i++) {
             // Verifica se esta fila de prioridade tem tarefas
-            if (priority_queues[i] != NULL) {
+            if (rr_p_priority_queues[i] != NULL) {
                 tasks_remaining = 1; // Temos tarefas, continua escalonando
                 
                 // Pega a tarefa no cabeçalho da fila de prioridade atual
-                Task *current_task = priority_queues[i]->task;
+                Task *current_task = rr_p_priority_queues[i]->task;
 
-                // Remove a tarefa do cabeçalho (para reinserir no final se não estiver concluída)
-                delete(&priority_queues[i], current_task); 
+                // Remove a tarefa do cabeçalho da fila (para reinserir no final se não estiver concluída)
+                delete(&rr_p_priority_queues[i], current_task); 
 
                 // Executa a tarefa por um quantum ou seu burst restante, o que for menor
                 int slice = (current_task->burst < QUANTUM) ? current_task->burst : QUANTUM;
@@ -107,34 +127,30 @@ void schedule_rr_p(){
 
                 // Se a tarefa não estiver concluída, reinserir no final de sua fila de prioridade
                 if (current_task->burst > 0) {
-                    // Reinserir no final para simular Round Robin dentro da mesma prioridade
-                    // A função 'insert' adiciona ao cabeçalho, então precisamos percorrer até o final.
-                    struct node *temp = priority_queues[i];
-                    if (temp == NULL) { // Se a fila estava vazia após a exclusão
-                        insert(&priority_queues[i], current_task);
+                    // Re-insere a tarefa no final da fila de prioridade atual
+                    struct node *newNode = malloc(sizeof(struct node));
+                    if (newNode == NULL) {
+                        perror("Falha ao alocar novo nó para reinserção de tarefa RR_P");
+                        exit(EXIT_FAILURE);
+                    }
+                    newNode->task = current_task;
+                    newNode->next = NULL;
+
+                    struct node **target_queue_head = &rr_p_priority_queues[current_task->priority - MIN_PRIORITY];
+                    if (*target_queue_head == NULL) {
+                        *target_queue_head = newNode;
                     } else {
+                        struct node *temp = *target_queue_head;
                         while (temp->next != NULL) {
                             temp = temp->next;
                         }
-                        struct node *newNode = malloc(sizeof(struct node));
-                        if (newNode == NULL) {
-                            perror("Falha ao alocar novo nó para reinserção");
-                            exit(EXIT_FAILURE);
-                        }
-                        newNode->task = current_task;
-                        newNode->next = NULL;
                         temp->next = newNode;
                     }
                 } else {
                     printf("Tarefa %s finalizada.\n", current_task->name);
-                    // A memória da tarefa já foi liberada pela função 'delete' (se implementado para isso)
-                    // Caso contrário, garanta que seja liberada aqui:
-                    // free(current_task->name);
-                    // free(current_task);
+                    // A memória da tarefa já foi liberada pela função 'delete'.
                 }
-                // Sai deste loop e reavalia para a próxima tarefa de maior prioridade
-                // Isso garante que a prioridade seja respeitada em cada decisão de escalonamento.
-                break; 
+                break; // Sai deste loop para reavaliar as prioridades após uma execução
             }
         }
     }
