@@ -82,16 +82,16 @@ int main(int argc, char *argv[])
 
     // Invoca o escalonador. Você precisará selecionar qual escalonador executar.
     // Por exemplo, para executar EDF:
-    printf("\n--- Executando Escalondador EDF ---\n");
-    schedule_edf();
+    //printf("\n--- Executando Escalondador EDF ---\n");
+    //schedule_edf();
     
     // Para executar RR_P:
     // printf("\n--- Executando Escalondador Round Robin com Prioridade ---\n");
     // schedule_rr_p();
 
     // Para executar RR:
-    // printf("\n--- Executando Escalondador Round Robin ---\n");
-    // schedule_rr();
+     printf("\n--- Executando Escalondador Round Robin ---\n");
+     schedule_rr();
 
     // Para executar PA:
     // printf("\n--- Executando Escalondador Prioridade com Envelhecimento ---\n");
