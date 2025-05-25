@@ -1,12 +1,7 @@
-# makefile para o programa de escalonamento
-#
-# make rr    - para escalonamento Round-Robin
-# make rr_p  - para escalonamento Round-Robin com prioridade
-# make edf   - para escalonamento EDF
-# make pa    - para escalonamento Prioridade com Aging
+# makefile for scheduling program
 
 CC=gcc
-CFLAGS=-Wall -pthread # Adiciona -pthread para futura implementação de threads, se necessário
+CFLAGS=-Wall -pthread
 
 clean:
 	rm -rf *.o
@@ -15,40 +10,55 @@ clean:
 	rm -rf edf
 	rm -rf pa
 
-# Regra para o escalonador Round-Robin (RR)
-rr: driver.o list.o CPU.o schedule_rr.o
-	$(CC) $(CFLAGS) -o rr driver.o schedule_rr.o list.o CPU.o
+# =========================================================
+# Alvos para cada tipo de escalonador (ajustados para seus nomes de arquivo)
+# =========================================================
 
-# Regra para o escalonador Round-Robin com Prioridade (RR_p)
-rr_p: driver.o list.o CPU.o schedule_rr_p.o
-	$(CC) $(CFLAGS) -o rr_p driver.o schedule_rr_p.o list.o CPU.o
+# Alvo para Round-Robin Normal (RR)
+rr: CFLAGS += -DUSE_RR_SCHEDULER
+rr: driver.o list.o CPU.o schedulers_rr.o # <-- Nome do objeto ajustado
+	$(CC) $(CFLAGS) -o rr driver.o schedulers_rr.o list.o CPU.o # <-- Nome do objeto ajustado
 
-# Regra para o escalonador Earliest Deadline First (EDF)
-edf: driver.o list.o CPU.o schedule_edf.o
-	$(CC) $(CFLAGS) -o edf driver.o schedule_edf.o list.o CPU.o
+# Alvo para Round-Robin com Prioridade (RR_p)
+rr_p: CFLAGS += -DUSE_RR_P_SCHEDULER
+rr_p: driver.o list.o CPU.o schedulers_rr_p.o # <-- Nome do objeto ajustado
+	$(CC) $(CFLAGS) -o rr_p driver.o schedulers_rr_p.o list.o CPU.o # <-- Nome do objeto ajustado
 
-# Regra para o escalonador Prioridade com Aging (PA)
-pa: driver.o list.o CPU.o schedule_pa.o
-	$(CC) $(CFLAGS) -o pa driver.o schedule_pa.o list.o CPU.o
+# Alvo para Earliest Deadline First (EDF)
+edf: CFLAGS += -DUSE_EDF_SCHEDULER
+edf: driver.o list.o CPU.o schedulers_edf.o # <-- Nome do objeto ajustado
+	$(CC) $(CFLAGS) -o edf driver.o schedulers_edf.o list.o CPU.o # <-- Nome do objeto ajustado
 
-# Regras de compilação de objetos
-driver.o: driver.c
+# Alvo para Prioridade com Aging (PA) - Assumindo que você tem schedulers_aging.c/h
+pa: CFLAGS += -DUSE_PA_SCHEDULER
+pa: driver.o list.o CPU.o schedulers_aging.o # <-- Nome do objeto ajustado (se for aging.c)
+	$(CC) $(CFLAGS) -o pa driver.o schedulers_aging.o list.o CPU.o # <-- Nome do objeto ajustado
+
+# =========================================================
+# Regras de compilação de arquivos objeto (.o) - Ajustadas para seus nomes de arquivo
+# =========================================================
+
+driver.o: driver.c task.h list.h CPU.h # <-- CPU.h com 'C' maiúsculo
 	$(CC) $(CFLAGS) -c driver.c
 
-schedule_rr.o: schedule_rr.c
-	$(CC) $(CFLAGS) -c schedule_rr.c
+# Ajuste para o nome do arquivo schedulers_rr.c
+schedulers_rr.o: schedulers_rr.c schedulers_rr.h task.h list.h CPU.h
+	$(CC) $(CFLAGS) -c schedulers_rr.c
 
-schedule_rr_p.o: schedule_rr_p.c
-	$(CC) $(CFLAGS) -c schedule_rr_p.c
+# Ajuste para o nome do arquivo schedulers_rr_p.c
+schedulers_rr_p.o: schedulers_rr_p.c schedulers_rr_p.h task.h list.h CPU.h
+	$(CC) $(CFLAGS) -c schedulers_rr_p.c
 
-schedule_edf.o: schedule_edf.c
-	$(CC) $(CFLAGS) -c schedule_edf.c
+# Ajuste para o nome do arquivo schedulers_edf.c
+schedulers_edf.o: schedulers_edf.c schedulers_edf.h task.h list.h CPU.h
+	$(CC) $(CFLAGS) -c schedulers_edf.c
 
-schedule_pa.o: schedule_pa.c
-	$(CC) $(CFLAGS) -c schedule_pa.c
+# Ajuste para o nome do arquivo schedulers_aging.c (se for o caso)
+schedulers_aging.o: schedulers_aging.c schedulers_aging.h task.h list.h CPU.h
+	$(CC) $(CFLAGS) -c schedulers_aging.c
 
-list.o: list.c list.h
+list.o: list.c list.h task.h
 	$(CC) $(CFLAGS) -c list.c
 
-CPU.o: CPU.c CPU.h
+CPU.o: CPU.c CPU.h task.h # <-- CPU.c e CPU.h com 'C' maiúsculo
 	$(CC) $(CFLAGS) -c CPU.c

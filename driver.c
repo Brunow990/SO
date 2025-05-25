@@ -1,115 +1,115 @@
+// driver.c
 /**
  * Driver.c
  *
- * O arquivo de agendamento está no formato
+ * Lê as tarefas de um arquivo de entrada e as adiciona ao escalonador selecionado.
+ * Em seguida, invoca a função de escalonamento.
  *
- * [nome] [prioridade] [burst da CPU] [deadline (opcional)]
+ * Formato do arquivo de entrada:
+ * [name],[priority],[CPU burst] (para RR, RR_p, Aging)
+ * [name],[priority],[CPU burst],[deadline] (para EDF)
  */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stdbool.h> // Para usar bool
+#include <string.h> // Para strdup, strsep, strchr
 
-#include "task.h"
-#include "list.h"
-#include "CPU.h"
+#include "task.h" // Define a estrutura Task
+#include "list.h" // Funções para manipulação de lista encadeada
+#include "CPU.h"  // Função para simular a execução da CPU
 
-// Inclui os cabeçalhos de TODOS os escalonadores
-#include "schedule_rr.h"
-#include "schedule_rr_p.h"
-#include "schedule_edf.h"
-#include "schedule_pa.h"
+// As macros (USE_RR_SCHEDULER, USE_RR_P_SCHEDULER, etc.) serão definidas no Makefile.
+// Isso permite que o driver.c inclua o cabeçalho correto e chame a função add() com os parâmetros certos.
+#ifdef USE_RR_SCHEDULER
+    #include "schedulers_rr.h"
+#elif defined USE_RR_P_SCHEDULER
+    #include "schedulers_rr_p.h"
+#elif defined USE_EDF_SCHEDULER
+    #include "schedulers_edf.h"
+#elif defined USE_PA_SCHEDULER
+    #include "schedulers_pa.h"
+#endif
 
-#define SIZE    100
+#define SIZE    100 // Tamanho máximo da linha lida do arquivo
 
 int main(int argc, char *argv[])
 {
     FILE *in;
-    char *temp;
-    char task_line[SIZE]; // Buffer para ler a linha da tarefa
+    char *temp_line_copy; // Usado para strdup e strsep
+    char task_line_buffer[SIZE]; // Buffer para ler a linha do arquivo
 
     char *name;
     int priority;
     int burst;
-    int deadline = 0; // Inicializa deadline como 0 (opcional, usado apenas para EDF/PA)
+    int deadline = 0; // Inicializado para 0, para escalonadores que não usam deadline
 
-    // Verifica o número de argumentos da linha de comando
-    if (argc < 3) {
-        fprintf(stderr, "Uso: %s <arquivo_tarefas> <escalonador>\n", argv[0]);
-        fprintf(stderr, "Escalonadores disponíveis: rr, rr_p, edf, pa\n");
-        return 1;
+    // Verifica se o nome do arquivo de entrada foi fornecido como argumento de linha de comando
+    if (argc < 2) {
+        fprintf(stderr, "Uso: %s <nome_do_arquivo_de_tarefas>\n", argv[0]);
+        return 1; // Retorna código de erro
     }
 
-    // Abre o arquivo de entrada
+    // Tenta abrir o arquivo de entrada para leitura
     in = fopen(argv[1], "r");
     if (in == NULL) {
-        perror("Erro ao abrir o arquivo de tarefas");
+        perror("Erro ao abrir o arquivo de tarefas"); // Imprime mensagem de erro do sistema
         return 1;
     }
-
-    char *scheduler_type = argv[2]; // Tipo de escalonador a ser usado
-
-    // Loop para ler as tarefas do arquivo
-    while (fgets(task_line, SIZE, in) != NULL) {
-        temp = strdup(task_line); // Duplica a linha para tokenização
-        if (temp == NULL) {
-            perror("Falha ao duplicar a string da tarefa");
+    
+    // Lê o arquivo linha por linha
+    while (fgets(task_line_buffer, SIZE, in) != NULL) {
+        // strdup duplica a string, pois strsep modifica a string original.
+        // Precisamos liberar esta memória depois.
+        temp_line_copy = strdup(task_line_buffer);
+        if (temp_line_copy == NULL) {
+            perror("Erro ao alocar memória para a linha da task");
             fclose(in);
-            return 1;
+            exit(EXIT_FAILURE);
+        }
+        
+        // Remove o caractere de nova linha (\n) que fgets pode ler
+        char *newline = strchr(temp_line_copy, '\n');
+        if (newline) {
+            *newline = '\0';
         }
 
-        // Extrai nome, prioridade e burst
-        name = strsep(&temp, ",");
-        priority = atoi(strsep(&temp, ","));
-        burst = atoi(strsep(&temp, ","));
+        char *parse_ptr = temp_line_copy; // Ponteiro auxiliar para strsep
 
-        // Se o escalonador for EDF ou Prioridade com Aging, tenta ler o deadline
-        if (strcmp(scheduler_type, "edf") == 0 || strcmp(scheduler_type, "pa") == 0) {
-            char *deadline_str = strsep(&temp, ",");
-            if (deadline_str != NULL) {
-                deadline = atoi(deadline_str);
-            } else {
-                fprintf(stderr, "Aviso: Deadline não especificado para tarefa %s no modo %s. Usando 0.\n", name, scheduler_type);
-                deadline = 0; // Define um valor padrão se não houver deadline
-            }
-        }
-
-        // Adiciona a tarefa ao escalonador apropriado
-        if (strcmp(scheduler_type, "rr") == 0) {
-            add_rr(name, priority, burst);
-        } else if (strcmp(scheduler_type, "rr_p") == 0) {
-            add_rr_p(name, priority, burst);
-        } else if (strcmp(scheduler_type, "edf") == 0) {
-            add_edf(name, priority, burst, deadline);
-        } else if (strcmp(scheduler_type, "pa") == 0) {
-            add_pa(name, priority, burst);
+        // Extrai os campos da linha usando strsep
+        name = strsep(&parse_ptr, ",");
+        priority = atoi(strsep(&parse_ptr, ","));
+        burst = atoi(strsep(&parse_ptr, ","));
+        
+        // Tenta ler o deadline. Se parse_ptr for NULL, significa que não há mais campos.
+        // Isso permite que o mesmo driver.c leia arquivos com ou sem deadline.
+        char *deadline_str = strsep(&parse_ptr, ",");
+        if (deadline_str != NULL) {
+            deadline = atoi(deadline_str);
         } else {
-            fprintf(stderr, "Erro: Escalonador '%s' desconhecido.\n", scheduler_type);
-            free(temp); // Libera o temp original antes de sair
-            fclose(in);
-            return 1;
+            deadline = 0; // Define 0 se não houver deadline no arquivo
         }
 
-        free(temp); // Libera a cópia da linha
+        // Chama a função 'add' do escalonador atualmente compilado.
+        // As macros USE_EDF_SCHEDULER etc. controlam qual versão de 'add' é chamada.
+        #ifdef USE_EDF_SCHEDULER
+            // Para EDF, 'add' espera o parâmetro deadline
+            add(name, priority, burst, deadline);
+        #else
+            // Para RR, RR_p, PA, 'add' espera 3 parâmetros.
+            // O valor de 'deadline' será ignorado por esses escalonadores,
+            // mas pode ser armazenado na Task struct.
+            add(name, priority, burst);
+        #endif
+
+        free(temp_line_copy); // Libera a memória alocada por strdup
     }
 
     fclose(in); // Fecha o arquivo de entrada
 
-    // Invoca o escalonador selecionado
-    if (strcmp(scheduler_type, "rr") == 0) {
-        schedule_rr();
-    } else if (strcmp(scheduler_type, "rr_p") == 0) {
-        schedule_rr_p();
-    } else if (strcmp(scheduler_type, "edf") == 0) {
-        schedule_edf();
-    } else if (strcmp(scheduler_type, "pa") == 0) {
-        schedule_pa();
-    } else {
-        // Já tratado acima, mas para segurança
-        fprintf(stderr, "Erro interno: Escalonador '%s' não invocado.\n", scheduler_type);
-        return 1;
-    }
+    // Invoca a função principal de escalonamento.
+    // Esta chamada será resolvida para a função schedule() do escalonador
+    // cujo cabeçalho foi incluído.
+    schedule();
 
-    return 0;
+    return 0; // Indica sucesso
 }
