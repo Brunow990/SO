@@ -1,13 +1,14 @@
 #ifndef SCHEDULE_PA_H
 #define SCHEDULE_PA_H
 
-#define MIN_PRIORITY 1
-#define MAX_PRIORITY 10
+#define MIN_PRIORITY_PA 1
+#define MAX_PRIORITY_PA 10 // A prioridade 1 é a mais alta
+#define AGING_THRESHOLD 50 // Limiar de tempo para envelhecimento (ex: 50 unidades de tempo)
 
-// adiciona uma tarefa à lista para o escalonador de Prioridade com Envelhecimento
+// Adiciona uma tarefa à lista de tarefas prontas para Prioridade com Aging
 void add_pa(char *name, int priority, int burst);
 
-// invoca o escalonador de Prioridade com Envelhecimento
+// Invoca o escalonador de Prioridade com Aging
 void schedule_pa();
 
 #endif

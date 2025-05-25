@@ -3,12 +3,11 @@
  */
 
 #include <stdio.h>
-#include "task.h" // Inclui a definição da Task
 
-// executa esta tarefa pela fatia de tempo especificada
+#include "task.h"
+
+// Executa esta tarefa pela fatia de tempo especificada
 void run(Task *task, int slice) {
-    // Imprime informações da tarefa, incluindo o burst restante e o deadline.
-    // O 'burst' aqui é o tempo restante da tarefa.
-    printf("Executando tarefa = [%s] [Prioridade: %d] [Burst: %d] [Deadline: %d] por %d unidades.\n",
-           task->name, task->priority, task->burst, task->deadline, slice);
+    printf("Executando tarefa = [%s] Prioridade: %d, Burst Restante: %d por %d unidades.\n",
+           task->name, task->priority, task->burst, slice);
 }

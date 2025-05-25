@@ -1,189 +1,202 @@
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "schedule_pa.h"
-#include "task.h"
 #include "list.h"
 #include "CPU.h"
 
-// Array de ponteiros de cabeçalho para filas de prioridade (MÚLTIPLAS FILAS)
-// O índice 0 corresponde à prioridade mais alta (MIN_PRIORITY, ex: 1)
-// O índice (MAX_PRIORITY - MIN_PRIORITY) corresponde à prioridade mais baixa (MAX_PRIORITY, ex: 10)
-#define PA_NUM_PRIORITY_LEVELS (MAX_PRIORITY - MIN_PRIORITY + 1)
-struct node *pa_priority_queues[PA_NUM_PRIORITY_LEVELS];
+// Array de listas de tarefas prontas, uma para cada nível de prioridade
+struct node *pa_priority_queues[MAX_PRIORITY_PA];
 
-static int pa_tid_counter = 0;
-static int pa_global_time = 0;
-#define AGING_THRESHOLD 50 // Defina seu limite de envelhecimento aqui (ex: 50 unidades de tempo sem executar)
+// Variável global para o tempo atual do sistema
+int current_time_pa = 0;
 
-// Inicializa as filas de prioridade (garante que todos os ponteiros sejam NULL no início)
-void initialize_pa_priority_queues() {
-    static int initialized = 0;
-    if (!initialized) {
-        for (int i = 0; i < PA_NUM_PRIORITY_LEVELS; i++) {
-            pa_priority_queues[i] = NULL;
-        }
-        initialized = 1;
+// Inicializa as filas de prioridade para Prioridade com Aging
+void init_pa_priority_queues() {
+    for (int i = 0; i < MAX_PRIORITY_PA; i++) {
+        pa_priority_queues[i] = NULL;
     }
 }
 
-// Função para aplicar o envelhecimento (aging) às tarefas
-void apply_aging() {
-    // Itera das prioridades mais baixas para as mais altas (exceto a mais alta, que não pode envelhecer mais)
-    for (int i = PA_NUM_PRIORITY_LEVELS - 1; i > 0; i--) { 
-        struct node *current = pa_priority_queues[i];
-        struct node *prev = NULL;
-
-        while (current != NULL) {
-            Task *task = current->task;
-            // Verifica se a tarefa passou do limite de envelhecimento e não é a prioridade mais alta
-            if (pa_global_time - task->last_run_time >= AGING_THRESHOLD && task->priority > MIN_PRIORITY) {
-                printf("Envelhecimento: Tarefa %s (P%d) envelheceu para P%d\n", task->name, task->priority, task->priority - 1);
-                task->priority--; // Aumenta a prioridade (diminui o número da prioridade)
-
-                // Remove a tarefa da fila atual
-                if (prev == NULL) { // Se for o cabeçalho da fila
-                    pa_priority_queues[i] = current->next;
-                } else {
-                    prev->next = current->next;
-                }
-                struct node *node_to_move = current;
-                current = current->next; // Move para a próxima tarefa na fila original
-
-                // Insere a tarefa na nova fila de prioridade mais alta (no final para manter RR)
-                node_to_move->next = NULL; // Desanexa do nó anterior
-                
-                // Encontra o final da nova fila de prioridade para inserção
-                struct node **new_head = &pa_priority_queues[task->priority - MIN_PRIORITY];
-                struct node *temp_new_queue = *new_head;
-                if (temp_new_queue == NULL) {
-                    *new_head = node_to_move; // Se a nova fila estiver vazia, torna-se o cabeçalho
-                } else {
-                    while (temp_new_queue->next != NULL) {
-                        temp_new_queue = temp_new_queue->next;
-                    }
-                    temp_new_queue->next = node_to_move; // Adiciona ao final da nova fila
-                }
-            } else {
-                prev = current;
-                current = current->next;
-            }
-        }
-    }
-}
-
-// adiciona uma tarefa à lista para o escalonador de Prioridade com Envelhecimento
-void add_pa(char *name, int priority, int burst){
-    initialize_pa_priority_queues(); // Garante que as filas estejam inicializadas
-
-    if (priority < MIN_PRIORITY || priority > MAX_PRIORITY) {
-        fprintf(stderr, "Prioridade inválida para a tarefa %s: %d (deve estar entre %d e %d)\n", name, priority, MIN_PRIORITY, MAX_PRIORITY);
+// Adiciona uma tarefa à lista de tarefas prontas para Prioridade com Aging
+void add_pa(char *name, int priority, int burst) {
+    if (priority < MIN_PRIORITY_PA || priority > MAX_PRIORITY_PA) {
+        fprintf(stderr, "Erro: Prioridade %d fora do intervalo válido (%d-%d) para a tarefa %s\n",
+                priority, MIN_PRIORITY_PA, MAX_PRIORITY_PA, name);
         return;
     }
 
-    Task *newTask = (Task *) malloc(sizeof(Task));
+    Task *newTask = malloc(sizeof(Task));
     if (newTask == NULL) {
-        perror("Falha ao alocar nova tarefa para PA");
+        perror("Falha ao alocar memória para a nova tarefa");
         exit(EXIT_FAILURE);
     }
+
     newTask->name = strdup(name);
     if (newTask->name == NULL) {
-        perror("Falha ao duplicar o nome da tarefa para PA");
+        perror("Falha ao alocar memória para o nome da tarefa");
         free(newTask);
         exit(EXIT_FAILURE);
     }
-    newTask->tid = ++pa_tid_counter;
     newTask->priority = priority;
     newTask->burst = burst;
-    newTask->initial_burst = burst;
-    newTask->arrival_time = pa_global_time;
-    newTask->last_run_time = pa_global_time; // Inicializa o tempo da última execução
+    newTask->originalBurst = burst;
+    newTask->deadline = 0; // Não usado para PA
+    newTask->arrivalTime = current_time_pa;
+    newTask->waitingTime = 0;
+    newTask->responseTime = -1;
+    newTask->turnaroundTime = 0;
+    newTask->completionTime = 0;
+    newTask->started = 0;
 
-    // Insere a tarefa na fila de prioridade correta (no final para manter RR dentro da prioridade)
-    struct node *newNode = malloc(sizeof(struct node));
-    if (newNode == NULL) {
-        perror("Falha ao alocar novo nó para PA");
-        free(newTask->name);
-        free(newTask);
-        exit(EXIT_FAILURE);
-    }
-    newNode->task = newTask;
-    newNode->next = NULL;
-
-    struct node **target_queue_head = &pa_priority_queues[priority - MIN_PRIORITY];
-    if (*target_queue_head == NULL) {
-        *target_queue_head = newNode;
-    } else {
-        struct node *temp = *target_queue_head;
-        while (temp->next != NULL) {
-            temp = temp->next;
-        }
-        temp->next = newNode;
-    }
-    printf("Tarefa adicionada para PA [%s] prioridade [%d] burst [%d]\n", name, priority, burst);
+    // Insere a tarefa na fila de prioridade correspondente
+    insert(&pa_priority_queues[priority - 1], newTask);
 }
 
-// invoca o escalonador de Prioridade com Envelhecimento
-void schedule_pa(){
-    initialize_pa_priority_queues(); // Garante que as filas estejam inicializadas
-    printf("Iniciando escalonamento Prioridade com Envelhecimento (PA)...\n");
-    
-    int tasks_remaining = 1; // Assume que há tarefas restantes até que se prove o contrário
+// Invoca o escalonador de Prioridade com Aging
+void schedule_pa() {
+    printf("Iniciando escalonamento de Prioridade com Aging...\n");
+
+    init_pa_priority_queues(); // Garante que as filas estão inicializadas
+
+    bool tasks_remaining = true;
     while (tasks_remaining) {
-        tasks_remaining = 0; // Reseta para esta iteração
+        tasks_remaining = false; // Assume que não há mais tarefas, a menos que uma seja encontrada
 
-        apply_aging(); // Aplica o envelhecimento antes de escolher a próxima tarefa
+        Task *next_task = NULL;
+        struct node *task_node_to_remove = NULL;
+        int current_priority_level = -1; // Para saber de qual fila a tarefa foi pega
 
-        // Itera das prioridades mais altas para as mais baixas
-        for (int i = 0; i < PA_NUM_PRIORITY_LEVELS; i++) {
-            // Verifica se esta fila de prioridade tem tarefas
+        // Percorre as filas de prioridade, da mais alta (1) para a mais baixa (MAX_PRIORITY_PA)
+        for (int i = 0; i < MAX_PRIORITY_PA; i++) {
             if (pa_priority_queues[i] != NULL) {
-                tasks_remaining = 1; // Temos tarefas, continua escalonando
-                
-                // Pega a tarefa no cabeçalho da fila de prioridade atual
-                Task *current_task = pa_priority_queues[i]->task;
+                tasks_remaining = true; // Há tarefas restantes
 
-                // Remove a tarefa do cabeçalho da fila (para reinserir no final se não estiver concluída)
-                delete(&pa_priority_queues[i], current_task); 
+                // Encontra a tarefa mais antiga na fila de maior prioridade não vazia
+                struct node *current_node = pa_priority_queues[i];
+                struct node *prev_node = NULL;
 
-                // Executa a tarefa por um quantum ou seu burst restante, o que for menor
-                int slice = (current_task->burst < QUANTUM) ? current_task->burst : QUANTUM;
-                
-                run(current_task, slice); // Simula a execução da tarefa
-                current_task->burst -= slice; // Diminui o burst restante
-                pa_global_time += slice; // Avança o tempo global
-
-                current_task->last_run_time = pa_global_time; // Atualiza o tempo da última execução
-
-                // Se a tarefa não estiver concluída, reinserir no final de sua fila de prioridade
-                if (current_task->burst > 0) {
-                    // Re-insere a tarefa no final da fila de prioridade atual
-                    struct node *newNode = malloc(sizeof(struct node));
-                    if (newNode == NULL) {
-                        perror("Falha ao alocar novo nó para reinserção de tarefa PA");
-                        exit(EXIT_FAILURE);
-                    }
-                    newNode->task = current_task;
-                    newNode->next = NULL;
-
-                    struct node **target_queue_head = &pa_priority_queues[current_task->priority - MIN_PRIORITY];
-                    if (*target_queue_head == NULL) {
-                        *target_queue_head = newNode;
-                    } else {
-                        struct node *temp = *target_queue_head;
-                        while (temp->next != NULL) {
-                            temp = temp->next;
-                        }
-                        temp->next = newNode;
-                    }
+                if (current_node->next == NULL) {
+                    next_task = current_node->task;
+                    task_node_to_remove = current_node;
+                    pa_priority_queues[i] = NULL; // A fila fica vazia temporariamente
                 } else {
-                    printf("Tarefa %s finalizada.\n", current_task->name);
-                    // A memória da tarefa já foi liberada pela função 'delete'.
+                    while (current_node->next != NULL) {
+                        prev_node = current_node;
+                        current_node = current_node->next;
+                    }
+                    next_task = current_node->task;
+                    task_node_to_remove = current_node;
+                    if (prev_node != NULL) {
+                        prev_node->next = NULL;
+                    }
                 }
-                break; // Sai deste loop para reavaliar as prioridades após uma execução
+                current_priority_level = i;
+                break; // Encontrou a tarefa de maior prioridade, sai do loop de prioridades
             }
         }
+
+        if (next_task == NULL) {
+            // Se não há tarefas em nenhuma fila, sai do loop principal
+            if (!tasks_remaining) {
+                break;
+            }
+            // Se tasks_remaining é true mas next_task é NULL, significa que a lógica de seleção falhou,
+            // ou todas as tarefas em filas não vazias foram temporariamente removidas.
+            // Isso pode acontecer se a lista for esvaziada e re-preenchida no mesmo ciclo.
+            // Para evitar loop infinito, vamos avançar o tempo e tentar novamente.
+            current_time_pa += 1; // Avança o tempo em 1 unidade para tentar o aging
+            printf("Nenhuma tarefa selecionada, avançando tempo. Tempo atual: %d\n", current_time_pa);
+            // Atualiza o tempo de espera para todas as tarefas
+            for (int j = 0; j < MAX_PRIORITY_PA; j++) {
+                struct node *temp_queue = pa_priority_queues[j];
+                while (temp_queue != NULL) {
+                    temp_queue->task->waitingTime += 1; // Incrementa o tempo de espera
+                    temp_queue = temp_queue->next;
+                }
+            }
+            continue; // Reinicia o loop while
+        }
+
+        // Atualiza o tempo de resposta se a tarefa estiver começando pela primeira vez
+        if (next_task->started == 0) {
+            next_task->responseTime = current_time_pa;
+            next_task->started = 1;
+        }
+
+        // Calcula o tempo de execução para este quantum
+        int slice = (next_task->burst < QUANTUM) ? next_task->burst : QUANTUM;
+
+        // Executa a tarefa
+        run(next_task, slice);
+        next_task->burst -= slice;
+        current_time_pa += slice; // Avança o tempo do sistema
+
+        // Atualiza o tempo de espera para todas as outras tarefas em TODAS as filas
+        for (int j = 0; j < MAX_PRIORITY_PA; j++) {
+            struct node *temp_queue = pa_priority_queues[j];
+            while (temp_queue != NULL) {
+                if (temp_queue->task != next_task) {
+                    temp_queue->task->waitingTime += slice;
+                }
+                temp_queue = temp_queue->next;
+            }
+        }
+
+        // Aplica o Aging: verifica e aumenta a prioridade das tarefas que estão esperando por muito tempo
+        for (int j = 0; j < MAX_PRIORITY_PA; j++) {
+            struct node *temp_queue = pa_priority_queues[j];
+            struct node *prev_aging_node = NULL;
+
+            while (temp_queue != NULL) {
+                Task *aging_task = temp_queue->task;
+                struct node *next_aging_node = temp_queue->next; // Salva o próximo antes de possivelmente mover
+
+                if (aging_task->waitingTime >= AGING_THRESHOLD && aging_task->priority > MIN_PRIORITY_PA) {
+                    printf("Aging: Tarefa [%s] prioridade aumentada de %d para %d. Tempo de espera: %d\n",
+                           aging_task->name, aging_task->priority, aging_task->priority - 1, aging_task->waitingTime);
+                    aging_task->priority--; // Aumenta a prioridade (diminui o número)
+                    aging_task->waitingTime = 0; // Reseta o tempo de espera
+
+                    // Remove a tarefa da fila atual
+                    if (prev_aging_node == NULL) { // É o head da fila
+                        pa_priority_queues[j] = next_aging_node;
+                    } else {
+                        prev_aging_node->next = next_aging_node;
+                    }
+                    temp_queue->next = NULL; // Desconecta o nó da fila antiga
+
+                    // Insere a tarefa na nova fila de prioridade
+                    insert(&pa_priority_queues[aging_task->priority - 1], aging_task);
+
+                    // Não avançamos 'temp_queue' aqui, pois o nó foi movido.
+                    // 'temp_queue' deve ser o 'next_aging_node' para continuar a iteração.
+                    temp_queue = next_aging_node;
+                } else {
+                    prev_aging_node = temp_queue;
+                    temp_queue = temp_queue->next;
+                }
+            }
+        }
+
+        // Se a tarefa não terminou, insere-a de volta no final da fila de sua prioridade atual
+        if (next_task->burst > 0) {
+            insert(&pa_priority_queues[next_task->priority - 1], next_task);
+        } else {
+            // Tarefa concluída
+            next_task->completionTime = current_time_pa;
+            next_task->turnaroundTime = next_task->completionTime - next_task->arrivalTime;
+            printf("Tarefa [%s] concluída no tempo %d. Turnaround: %d, Resposta: %d, Espera: %d\n",
+                   next_task->name, next_task->completionTime, next_task->turnaroundTime,
+                   next_task->responseTime, next_task->waitingTime);
+            // Libera a memória da tarefa e do nó
+            free(next_task->name);
+            free(next_task);
+            free(task_node_to_remove); // Libera o nó que foi removido da lista
+        }
     }
-    printf("Escalonamento Prioridade com Envelhecimento completo. Tempo total: %d\n", pa_global_time);
+
+    printf("Escalonamento de Prioridade com Aging concluído. Tempo total: %d\n", current_time_pa);
 }
